@@ -9,14 +9,17 @@ use crate::{
     model::*,
     sync::Mutex,
     util::build_map,
-    ClientResult, Config, Credentials, Token,
+    ClientError, ClientResult, Config, Credentials, Token,
 };
 
-use std::{collections::HashMap, fmt, ops::Not, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, fmt, ops::Not, sync::Arc};
 
+use async_stream::stream;
 use chrono::Utc;
 use maybe_async::maybe_async;
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value;
+use url::form_urlencoded;
 
 /// This trait implements the basic endpoints from the Spotify API that may be
 /// accessed without user authorization, including parts of the authentication
@@ -1051,6 +1054,50 @@ where
 
         let url = format!("users/{}/playlists", user_id.id());
         let result = self.api_get(&url, &params).await?;
+        convert_result(&result)
+    }
+
+    fn paginate<'a, T>(&'a self, mut page: Page<T>) -> Paginator<'_, ClientResult<T>>
+    where
+        T: Unpin + Send + Sync + DeserializeOwned + 'a,
+    {
+        let limit = self.get_config().pagination_chunks;
+
+        Box::pin(stream! {
+            let path = url::Url::parse(&page.href);
+            let path = path?.path().to_string();
+
+            loop {
+                let offset = page.offset + page.items.len() as u32;
+
+                for item in page.items.drain(..) {
+                    yield Ok(item);
+                }
+
+                if page.next.is_none() {
+                    break;
+                }
+
+                let request = self.paginate_manual(&path, Some(limit), Some(offset));
+                page = request.await?;
+            }
+        })
+    }
+
+    async fn paginate_manual<T>(
+        &self,
+        path: &str,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> ClientResult<Page<T>>
+    where
+        T: Unpin + Send + Sync + DeserializeOwned,
+    {
+        let limit = limit.map(|s| s.to_string());
+        let offset = offset.map(|s| s.to_string());
+        let params = build_map([("limit", limit.as_deref()), ("offset", offset.as_deref())]);
+
+        let result = self.api_get(&path, &params).await?;
         convert_result(&result)
     }
 }
