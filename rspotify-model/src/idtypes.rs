@@ -99,7 +99,7 @@ use serde::{Deserialize, Serialize};
 use strum::Display;
 use thiserror::Error;
 
-use std::{borrow::Cow, fmt::Debug, hash::Hash};
+use std::{borrow::Cow, convert::TryFrom, fmt::Debug, hash::Hash};
 
 use crate::Type;
 
@@ -476,6 +476,94 @@ define_idtypes!(
 
 // We use `enum_dispatch` for dynamic dispatch, which is not only easier to use
 // than `dyn`, but also more efficient.
+#[enum_dispatch(Id)]
+pub enum Uri<'a> {
+    Artist(ArtistId<'a>),
+    Album(AlbumId<'a>),
+    Track(TrackId<'a>),
+    Playlist(PlaylistId<'a>),
+    Show(ShowId<'a>),
+    Episode(EpisodeId<'a>),
+    User(UserId<'a>),
+}
+
+impl<'a> Uri<'a> {
+    #[must_use]
+    pub fn as_ref(&'a self) -> Uri {
+        match self {
+            Uri::Artist(x) => Uri::Artist(x.as_ref()),
+            Uri::Album(x) => Uri::Album(x.as_ref()),
+            Uri::Track(x) => Uri::Track(x.as_ref()),
+            Uri::Playlist(x) => Uri::Playlist(x.as_ref()),
+            Uri::Show(x) => Uri::Show(x.as_ref()),
+            Uri::Episode(x) => Uri::Episode(x.as_ref()),
+            Uri::User(x) => Uri::User(x.as_ref()),
+        }
+    }
+
+    #[must_use]
+    pub fn into_static(self) -> Uri<'static> {
+        match self {
+            Uri::Artist(x) => Uri::Artist(x.into_static()),
+            Uri::Album(x) => Uri::Album(x.into_static()),
+            Uri::Track(x) => Uri::Track(x.into_static()),
+            Uri::Playlist(x) => Uri::Playlist(x.into_static()),
+            Uri::Show(x) => Uri::Show(x.into_static()),
+            Uri::Episode(x) => Uri::Episode(x.into_static()),
+            Uri::User(x) => Uri::User(x.into_static()),
+        }
+    }
+
+    #[must_use]
+    pub fn clone_static(&'a self) -> Uri<'static> {
+        match self {
+            Uri::Artist(x) => Uri::Artist(x.clone_static()),
+            Uri::Album(x) => Uri::Album(x.clone_static()),
+            Uri::Track(x) => Uri::Track(x.clone_static()),
+            Uri::Playlist(x) => Uri::Playlist(x.clone_static()),
+            Uri::Show(x) => Uri::Show(x.clone_static()),
+            Uri::Episode(x) => Uri::Episode(x.clone_static()),
+            Uri::User(x) => Uri::User(x.clone_static()),
+        }
+    }
+
+    pub fn from_uri(uri: &'a str) -> Result<Self, IdError> {
+        let (tpe, id) = parse_uri(&uri)?;
+        Self::from_id_and_type(id, tpe)
+    }
+
+    pub fn from_id_and_type<S>(id: S, tpe: Type) -> Result<Self, IdError>
+    where
+        S: Into<Cow<'a, str>>,
+    {
+        Ok(match tpe {
+            Type::Artist => ArtistId::from_id(id)?.into(),
+            Type::Album => AlbumId::from_id(id)?.into(),
+            Type::Track => TrackId::from_id(id)?.into(),
+            Type::Playlist => PlaylistId::from_id(id)?.into(),
+            Type::Show => ShowId::from_id(id)?.into(),
+            Type::Episode => EpisodeId::from_id(id)?.into(),
+            Type::User => UserId::from_id(id)?.into(),
+
+            _ => Err(IdError::InvalidType)?,
+        })
+    }
+
+    pub fn from_id_or_uri_and_type(id: &'a str, tpe: Type) -> Result<Self, IdError> {
+        Ok(match tpe {
+            Type::Artist => ArtistId::from_id_or_uri(id)?.into(),
+            Type::Album => AlbumId::from_id_or_uri(id)?.into(),
+            Type::Track => TrackId::from_id_or_uri(id)?.into(),
+            Type::Playlist => PlaylistId::from_id_or_uri(id)?.into(),
+            Type::Show => ShowId::from_id_or_uri(id)?.into(),
+            Type::Episode => EpisodeId::from_id_or_uri(id)?.into(),
+            Type::User => UserId::from_id_or_uri(id)?.into(),
+
+            _ => Err(IdError::InvalidType)?,
+        })
+    }
+}
+
 /// Grouping up multiple kinds of IDs to treat them generically. This also
 /// implements [`Id`], and [`From`] to instantiate it.
 #[enum_dispatch(Id)]
